@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>star game timer</title>
+
+<style>
+body{font-family:Arial;background:#111;color:#fff;text-align:center;}
+h1{color:#00ffcc;}
+.machine{border:2px solid #555;margin:8px;padding:8px;border-radius:10px;}
+.free{border-color:#666;}
+.running{border-color:#00cc66;}
+.warning{border-color:#ff9900;}
+button{margin:3px;padding:5px 8px;border:none;border-radius:5px;cursor:pointer;}
+.start{background:#00cc66;}
+.add1{background:#ff9900;}
+.addhalf{background:#ffaa33;}
+.stop{background:#cc0000;color:#fff;}
+.reset{background:#666;color:#fff;}
+.rename{background:#3399ff;color:#fff;}
+input{padding:3px;width:70px;}
+.nameInput{width:90px;}
+.priceInput{width:70px;}
+</style>
+</head>
+
+<body>
+
+<h1>电玩店营业计时系统</h1>
+
+<button onclick="clearAll()">一键全部清台</button>
+<h3>今日总收入：<span id="totalIncome">0</span> 元</h3>
+
+<div id="machines"></div>
+
+<script>
+
+const MACHINE_COUNT = 13;
+
+let machines=[];
+let totalIncome=0;
+let lastResetDate="";
+
+function todayString(){
+    return new Date().toISOString().split("T")[0];
+}
+
+function save(){
+    localStorage.setItem("arcadeData",JSON.stringify({
+        machines,totalIncome,lastResetDate
+    }));
+}
+
+function load(){
+    let data=localStorage.getItem("arcadeData");
+    if(data){
+        let parsed=JSON.parse(data);
+        machines=parsed.machines||[];
+        totalIncome=parsed.totalIncome||0;
+        lastResetDate=parsed.lastResetDate||todayString();
+    }else{
+        initMachines();
+        lastResetDate=todayString();
+    }
+
+    if(lastResetDate!==todayString()){
+        totalIncome=0;
+        lastResetDate=todayString();
+    }
+
+    machines.forEach(m=>{
+        if(typeof m.totalSeconds!=="number") m.totalSeconds=0;
+        if(typeof m.price!=="number") m.price=60;
+        if(!m.status) m.status="free";
+    });
+}
+
+function initMachines(){
+    machines=[];
+    for(let i=1;i<=MACHINE_COUNT;i++){
+        machines.push({
+            id:i,
+            name:i+"号机",
+            price:60,
+            totalSeconds:0,
+            startTimestamp:null,
+            status:"free"
+        });
+    }
+}
+
+function buildUI(){
+    let container=document.getElementById("machines");
+    container.innerHTML="";
+
+    machines.forEach(m=>{
+        let div=document.createElement("div");
+        div.className="machine";
+        div.id="machine-"+m.id;
+
+        div.innerHTML=`
+            名称 <input class="nameInput" id="name-${m.id}" value="${m.name}">
+            <button class="rename" onclick="renameMachine(${m.id})">保存</button>
+            <br>
+            单价(元/小时) 
+            <input class="priceInput" type="number" id="price-${m.id}" value="${m.price}">
+            <button class="rename" onclick="updatePrice(${m.id})">保存单价</button>
+            <p id="time-${m.id}">0分00秒</p>
+            <button class="start" onclick="startTimer(${m.id})">开始(1小时)</button>
+            <button class="add1" onclick="addTime(${m.id},3600)">+1小时</button>
+            <button class="addhalf" onclick="addTime(${m.id},1800)">+半小时</button>
+            <button class="stop" onclick="stopTimer(${m.id})">停止</button>
+            <button class="reset" onclick="resetTimer(${m.id})">清零</button>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function updateDisplay(){
+    document.getElementById("totalIncome").innerText=totalIncome.toFixed(2);
+
+    machines.forEach(m=>{
+        let remain=getRemainingSeconds(m);
+        let timeEl=document.getElementById("time-"+m.id);
+        if(timeEl){
+            timeEl.innerText=formatTime(remain);
+        }
+
+        let box=document.getElementById("machine-"+m.id);
+        if(box){
+            box.className="machine "+m.status;
+            if(m.status==="running" && remain<=300){
+                box.className="machine warning";
+            }
+        }
+    });
+
+    save();
+}
+
+function getRemainingSeconds(m){
+    if(m.status!=="running") return m.totalSeconds;
+
+    let passed=Math.floor((Date.now()-m.startTimestamp)/1000);
+    let remain=m.totalSeconds-passed;
+
+    if(remain<=0){
+        finishMachine(m);
+        return 0;
+    }
+    return remain;
+}
+
+function startTimer(id){
+    let m=machines.find(x=>x.id===id);
+    if(m.status==="running") return;
+
+    if(m.totalSeconds<=0){
+        m.totalSeconds=3600;  // 默认 1 小时
+    }
+
+    m.startTimestamp=Date.now();
+    m.status="running";
+}
+
+function finishMachine(m){
+    let earned=(m.totalSeconds/3600)*m.price;
+    totalIncome+=earned;
+
+    m.totalSeconds=0;
+    m.startTimestamp=null;
+    m.status="free";
+}
+
+function stopTimer(id){
+    let m=machines.find(x=>x.id===id);
+    if(m.status!=="running") return;
+
+    let remain=getRemainingSeconds(m);
+    let used=m.totalSeconds-remain;
+    totalIncome+=(used/3600)*m.price;
+
+    m.totalSeconds=0;
+    m.startTimestamp=null;
+    m.status="free";
+}
+
+function resetTimer(id){
+    let m=machines.find(x=>x.id===id);
+    m.totalSeconds=0;
+    m.startTimestamp=null;
+    m.status="free";
+}
+
+function addTime(id,sec){
+    let m=machines.find(x=>x.id===id);
+    m.totalSeconds+=sec;
+}
+
+function clearAll(){
+    machines.forEach(m=>{
+        m.totalSeconds=0;
+        m.startTimestamp=null;
+        m.status="free";
+    });
+}
+
+function renameMachine(id){
+    let m=machines.find(x=>x.id===id);
+    m.name=document.getElementById("name-"+id).value.trim();
+}
+
+function updatePrice(id){
+    let m=machines.find(x=>x.id===id);
+    m.price=parseFloat(document.getElementById("price-"+id).value)||0;
+}
+
+function formatTime(s){
+    s=Math.max(0,parseInt(s)||0);
+    let m=Math.floor(s/60);
+    let ss=s%60;
+    return m+"分"+(ss<10?"0"+ss:ss)+"秒";
+}
+
+load();
+buildUI();
+updateDisplay();
+setInterval(updateDisplay,1000);
+
+</script>
+
+</body>
+</html>
